@@ -181,6 +181,46 @@ def survey(
 
 
 @app.command()
+def serve(
+    config: ConfigOpt = DEFAULT_CONFIG_PATH,
+    host: Annotated[
+        str, typer.Option(help="Bind address. Loopback by default — internal service.")
+    ] = "127.0.0.1",
+    port: Annotated[
+        int, typer.Option(help="Bind port (ares-ui's ARES_ENDPOINT default is 8087).")
+    ] = 8087,
+    live: Annotated[
+        bool, typer.Option(help="Serve a real monitor-mode survey (needs hardware).")
+    ] = False,
+) -> None:
+    """Serve the HTTP surface the console reads: /health, /scope, SSE /stream.
+
+    Mock survey by default so it runs with no radio; --live runs real sweeps
+    through the scope guard. Bound to loopback — the console's BFF is the only
+    intended client, never the browser directly.
+    """
+    import uvicorn
+
+    from ares.http.app import create_app
+    from ares.http.source import LiveSurveySource, MockSurveySource, SurveySource
+
+    cfg = ScopeConfig.load(config) if config.exists() else ScopeConfig()
+
+    source: SurveySource
+    if live:
+        live_source = LiveSurveySource(ScopeGuard(cfg), cfg.interface)
+        live_source.set_own_ssids(cfg.own_ssids)
+        source = live_source
+        typer.secho(f"serving LIVE survey on {cfg.interface}", fg=typer.colors.YELLOW)
+    else:
+        source = MockSurveySource()
+        typer.echo("serving MOCK survey (no radio) — pass --live for real sweeps")
+
+    typer.echo(f"Ares HTTP surface on http://{host}:{port}  (/health /scope /stream)")
+    uvicorn.run(create_app(source, cfg), host=host, port=port, log_level="warning")
+
+
+@app.command()
 def audit(config: ConfigOpt = DEFAULT_CONFIG_PATH) -> None:
     """Own-network passphrase/handshake audit (passive, own-scope). Not yet built."""
     ScopeConfig.load(config)  # validate scope config exists before the (future) audit
