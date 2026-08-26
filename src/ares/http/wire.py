@@ -94,3 +94,20 @@ class ScopeBody(_Wire):
     own_ssids: list[str]
     own_bssid_count: int
     active_enabled: bool
+
+
+class WireFinding(_Wire):
+    """``GET /findings`` item — a ``security.wifi.finding`` for the board.
+
+    The same discrete finding the service emits to Hermes, plus a timestamp and
+    an id for the UI. Never carries a secret (see ``ares.audit.to_finding``); a
+    ``capture_ref`` points at the Apollo blob, it does not inline it.
+    """
+
+    id: str
+    at: str
+    kind: str
+    severity: str  # info | low | medium | high | critical
+    summary: str
+    bssid: str | None = None
+    capture_ref: str | None = None
