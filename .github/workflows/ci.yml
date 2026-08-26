@@ -1,0 +1,77 @@
+name: CI
+
+# Verifies every pull request targeting development or main: lint, formatting,
+# types, and the test suite. Merging is blocked unless all required checks pass
+# (branch protection, where the plan allows it).
+on:
+  pull_request:
+    branches: [development, main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Formatting is a separate job so a format violation fails independently of
+  # the tests (a green suite must not mask a format failure).
+  format:
+    name: Format (ruff format)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: ./.github/actions/setup-uv
+      - name: Check formatting
+        run: |
+          uv sync --locked
+          uv run ruff format --check .
+
+  lint:
+    name: Lint (ruff check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: ./.github/actions/setup-uv
+      - name: Lint
+        run: |
+          uv sync --locked
+          uv run ruff check .
+
+  types:
+    name: Types (mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: ./.github/actions/setup-uv
+      - name: Type-check
+        run: |
+          uv sync --locked
+          uv run mypy src
+
+  test:
+    name: Test (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: ./.github/actions/setup-uv
+      - name: Run tests
+        run: |
+          uv sync --locked
+          uv run pytest
+
+  # Secret scanning — fail the PR if a credential was committed (language-agnostic).
+  secrets-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0 # scan full history
+      - name: gitleaks
+        run: |
+          V=8.18.4
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${V}/gitleaks_${V}_linux_x64.tar.gz" \
+            | tar xz -C /tmp gitleaks
+          /tmp/gitleaks detect --source . --redact --verbose
