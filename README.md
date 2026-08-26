@@ -74,10 +74,23 @@ cp scope.example.toml scope.local.toml    # then pin your own_bssids
 uv run ares survey -c scope.local.toml --from-csv path/to/airodump-01.csv
 ```
 
+Serve the HTTP surface the [ares-ui](../ares-ui) console reads (`/health`, `/scope`, SSE
+`/stream`) — mock survey by default, so it runs with no radio:
+
+```bash
+uv run ares serve            # http://127.0.0.1:8087  (loopback; the console's BFF reaches it)
+uv run ares serve --live     # real monitor-mode sweeps through the scope guard (needs hardware)
+```
+
+The stream emits the ares-ui wire contract exactly (own-scope detail + foreign aggregate only).
+Point ares-ui at it with `ARES_ENDPOINT=http://127.0.0.1:8087` + `ARES_LIVE_STREAM=1`.
+
 Layout: `scope.py` (BSSID/MAC guard, fails closed) · `config.py` (scope TOML) · `survey.py`
 (parse airodump → keep own detail, aggregate foreign) · `discover.py` (`scope discover`) ·
-`monitor.py` (the thin hardware boundary — airmon/airodump) · `transport/` (Hermes findings +
-Apollo captures, no-op when unconfigured) · `cli.py` (the `ares` command).
+`radio/` (iw enumeration + mode state machine + pool) · `http/` (the `ares serve` ASGI surface:
+wire contract, mock/live survey sources, Starlette app) · `monitor.py` (the thin hardware
+boundary — airmon/airodump) · `transport/` (Hermes findings + Apollo captures, no-op when
+unconfigured) · `cli.py` (the `ares` command).
 
 Live capture and the Docker image (`Dockerfile`, `docker-compose.yml`) need the RTL8812AU driver
 in the **host** kernel and the adapter in monitor mode — the host prep step (see AGENTS.md).
