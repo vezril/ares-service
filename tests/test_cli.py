@@ -73,13 +73,15 @@ def test_active_deauth_needs_confirmation_even_on_allowlist(tmp_path: Path) -> N
     assert "--yes to confirm" in result.output
 
 
-def test_active_deauth_scaffold_passes_with_confirmation(tmp_path: Path) -> None:
+def test_active_deauth_dry_run_passes_the_gate(tmp_path: Path) -> None:
+    # --yes + --dry-run: all gates pass, nothing transmits. (Live transmission is
+    # exercised only against real hardware; the gate is what these tests cover.)
     scope = _write_scope(tmp_path, active=True)
     result = runner.invoke(
-        app, ["active", "deauth", "aa:bb:cc:dd:ee:ff", "-c", str(scope), "--yes"]
+        app, ["active", "deauth", "aa:bb:cc:dd:ee:ff", "-c", str(scope), "--yes", "--dry-run"]
     )
     assert result.exit_code == 0
-    assert "transmission not yet wired" in result.output
+    assert "[dry-run]" in result.output
 
 
 def test_scope_discover_from_csv_lists_candidates(tmp_path: Path) -> None:

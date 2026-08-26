@@ -68,6 +68,18 @@ class ScopeGuard:
         """Own vs foreign for a passively observed BSSID (governs storage)."""
         return Scope.OWN if self.is_own_bssid(bssid) else Scope.FOREIGN
 
+    def assert_active_enabled(self) -> None:
+        """Refuse if the active tier is off (the default). Fails closed.
+
+        Every radiating action passes through here first. Active frames reach
+        every device in range, so the tier is opt-in per config, deliberately.
+        """
+        if not self._config.active.enabled:
+            raise ScopeError(
+                "active tier is disabled (active.enabled = false). Active frames radiate "
+                "to every device in range; enable it deliberately and only against your own gear."
+            )
+
     def assert_active_allowed(self, target_bssid: str) -> None:
         """Gate an active (radiating) action on ``target_bssid``.
 
@@ -76,11 +88,7 @@ class ScopeGuard:
         obtain per-run confirmation (see :attr:`ScopeConfig.active`); this method
         enforces the allowlist, not the human confirmation.
         """
-        if not self._config.active.enabled:
-            raise ScopeError(
-                "active tier is disabled (active.enabled = false). Active frames radiate "
-                "to every device in range; enable it deliberately and only against your own gear."
-            )
+        self.assert_active_enabled()
         if not self._own_bssids:
             raise ScopeError(
                 "own_bssids allowlist is empty — refusing every active action. "
