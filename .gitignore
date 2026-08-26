@@ -1,0 +1,11 @@
+# captures & scope secrets — never commit live RF data or the BSSID scope file
+captures/
+*.pcap
+*.pcapng
+*.cap
+*.hccapx
+*.22000
+scope.local.yml
+.env
+__pycache__/
+*.pyc
