@@ -107,6 +107,13 @@ def create_app(
     async def findings_route(_request: Request) -> JSONResponse:
         return JSONResponse([f.dump() for f in store.list()])
 
+    async def posture_route(_request: Request) -> JSONResponse:
+        # Fuse the current own-AP snapshot with the findings store — no new capture.
+        from ares.http.posture import build_posture
+
+        items = build_posture(source.snapshot().own_aps, store.list())
+        return JSONResponse([p.dump() for p in items])
+
     async def stream(request: Request) -> EventSourceResponse:
         return EventSourceResponse(
             stream_events(source, request.is_disconnected, tick_seconds, findings=store)
@@ -117,6 +124,7 @@ def create_app(
             Route("/health", health),
             Route("/scope", scope),
             Route("/findings", findings_route),
+            Route("/posture", posture_route),
             Route("/stream", stream),
         ]
     )
