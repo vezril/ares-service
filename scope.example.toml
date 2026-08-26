@@ -1,0 +1,23 @@
+# Ares scope config — copy to scope.local.toml (gitignored) and edit.
+#
+# SSID is a human handle used only for discovery. The trust anchor is the BSSID
+# allowlist below: active actions gate on own_bssids, NEVER on the SSID string
+# (SSID is spoofable). Start with own_bssids empty, run `ares scope discover`,
+# then confirm and paste the BSSIDs you recognize here.
+
+own_ssids       = ["Experimental Neutron"]
+own_bssids      = []           # e.g. ["aa:bb:cc:dd:ee:ff"] — pin after discovery
+own_client_macs = []           # throwaway test devices for the active tier
+interface       = "wlan0"
+
+[active]
+# Active tier radiates to every device in range. Leave OFF until passive is
+# proven and you have a dedicated test AP + throwaway clients.
+enabled             = false
+require_confirmation = true
+
+[transport]
+# Leave blank to run fully offline (findings logged, captures kept locally).
+hermes_base_url = ""           # e.g. "http://hermesmq.hermes.svc.cluster.local:8080"
+apollo_base_url = ""           # e.g. "http://apollo-storage.apollo.svc.cluster.local:8080"
+timeout_seconds = 10.0

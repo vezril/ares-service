@@ -51,7 +51,36 @@ Seeded 2026-08-26; design decisions locked (see the codex design doc's "Decision
   handle; BSSID is the trust anchor (SSID is spoofable) — `ares scope discover` resolves the
   named SSID → own-BSSID allowlist for confirmation.
 
-Ready for a dedicated Ares build session to start (passive survey first).
+Scaffolded 2026-08-26 (Python 3.12 + uv): scope guard, findings schema, passive survey pipeline,
+CLI, and the Docker/Compose surface. Passive tier is wired end-to-end (offline via `--from-csv`);
+the active tier's gate is scaffolded but transmission is intentionally not wired yet.
+
+## Development
+
+Python 3.12 + [uv](https://docs.astral.sh/uv/). The scope guard (`src/ares/scope.py`) is the
+load-bearing safety boundary — it gets the hardest tests.
+
+```bash
+uv sync                          # install deps
+uv run ruff check . && uv run ruff format --check .
+uv run mypy                      # strict
+uv run pytest                    # 34 tests, scope/config/survey covered
+```
+
+Try it offline (no radio needed) against a sample airodump CSV:
+
+```bash
+cp scope.example.toml scope.local.toml    # then pin your own_bssids
+uv run ares survey -c scope.local.toml --from-csv path/to/airodump-01.csv
+```
+
+Layout: `scope.py` (BSSID/MAC guard, fails closed) · `config.py` (scope TOML) · `survey.py`
+(parse airodump → keep own detail, aggregate foreign) · `discover.py` (`scope discover`) ·
+`monitor.py` (the thin hardware boundary — airmon/airodump) · `transport/` (Hermes findings +
+Apollo captures, no-op when unconfigured) · `cli.py` (the `ares` command).
+
+Live capture and the Docker image (`Dockerfile`, `docker-compose.yml`) need the RTL8812AU driver
+in the **host** kernel and the adapter in monitor mode — the host prep step (see AGENTS.md).
 
 ## Constellation conventions
 

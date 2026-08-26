@@ -1,0 +1,28 @@
+# Ares runs as Docker Compose on the dedicated Debian/Ubuntu laptop node — NOT k8s,
+# NOT the QNAP. The RTL8812AU DKMS driver lives in the HOST kernel; Compose passes
+# the interface plus the capabilities monitor mode + injection require.
+#
+# Before `docker compose run`: install the host driver, confirm the adapter does
+# monitor mode (`iw list` → monitor; airmon-ng clean), and set the interface name
+# in scope.local.toml. See AGENTS.md "First milestone".
+services:
+  ares:
+    build: .
+    image: calvinference/aresservice:dev
+    # Monitor mode + injection need the real radio and raw sockets. host network so
+    # the interface is the host's; NET_ADMIN/NET_RAW for mode changes and injection.
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    # USB passthrough for the adapter. Prefer scoping to the specific device node;
+    # `privileged: true` is the blunt fallback if a bus/dev path is awkward to pin.
+    devices:
+      - "/dev/bus/usb:/dev/bus/usb"
+    volumes:
+      # scope.local.toml is the operator's own-network allowlist (gitignored).
+      - "./scope.local.toml:/app/scope.local.toml:ro"
+      # captures land on the host, not in the image layer.
+      - "./captures:/app/captures"
+    # Passive by default: no active tier, no auto-run of anything radiating.
+    command: ["survey", "--config", "/app/scope.local.toml"]

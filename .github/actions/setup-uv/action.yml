@@ -1,0 +1,14 @@
+name: "Setup uv"
+description: "uv + the pinned Python from .python-version + cache keyed on uv.lock — shared by all workflows."
+runs:
+  using: "composite"
+  steps:
+    - name: Install uv (cached)
+      uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+      with:
+        enable-cache: true
+        cache-dependency-glob: "uv.lock"
+
+    - name: Install the pinned Python
+      shell: bash
+      run: uv python install

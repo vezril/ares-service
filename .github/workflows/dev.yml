@@ -1,0 +1,76 @@
+name: Dev publish
+
+# Every push to development publishes an explicitly-unstable image (:dev and
+# :dev-<short-sha>) after the tests pass. Runs only on pushes to this repo's
+# development branch — fork pull requests cannot push here, so secrets are
+# never exposed to forks.
+on:
+  push:
+    branches: [development]
+
+concurrency:
+  group: dev-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: aresservice
+
+jobs:
+  dev-publish:
+    name: Test and publish dev image
+    runs-on: ubuntu-latest
+    if: github.repository_owner == 'vezril'
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      # Publishing degrades gracefully: absent Docker Hub secrets SKIP the image
+      # steps (steps below gate on this output) instead of failing the workflow —
+      # a project without a Docker Hub repo still gets green CI. secrets.* is not
+      # readable in `if:`, hence this env indirection.
+      - name: Check Docker Hub credentials
+        id: creds
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "NOTICE: Docker Hub secrets absent — image publish steps will be SKIPPED."
+          fi
+
+      - uses: ./.github/actions/setup-uv
+
+      - name: Run tests
+        run: |
+          uv sync --locked
+          uv run pytest
+
+      - name: Log in to Docker Hub
+        if: steps.creds.outputs.present == 'true'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build image
+        if: steps.creds.outputs.present == 'true'
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: docker build -t "$DOCKERHUB_USERNAME/$IMAGE_NAME:build" .
+
+      - name: Tag and push dev + dev-<short-sha>
+        if: steps.creds.outputs.present == 'true'
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          SHORT_SHA="$(echo "$COMMIT_SHA" | cut -c1-7)"
+          for TARGET in "$DOCKERHUB_USERNAME/$IMAGE_NAME:dev" "$DOCKERHUB_USERNAME/$IMAGE_NAME:dev-$SHORT_SHA"; do
+            docker tag "$DOCKERHUB_USERNAME/$IMAGE_NAME:build" "$TARGET"
+            docker push "$TARGET"
+          done

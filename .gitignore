@@ -9,3 +9,13 @@ scope.local.yml
 .env
 __pycache__/
 *.pyc
+
+# python tooling
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+*.egg-info/
