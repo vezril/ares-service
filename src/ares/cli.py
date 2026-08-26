@@ -221,14 +221,81 @@ def serve(
 
 
 @app.command()
-def audit(config: ConfigOpt = DEFAULT_CONFIG_PATH) -> None:
-    """Own-network passphrase/handshake audit (passive, own-scope). Not yet built."""
-    ScopeConfig.load(config)  # validate scope config exists before the (future) audit
-    typer.secho(
-        "audit tier not yet implemented — passive survey first, then own-AP handshake capture.",
-        fg=typer.colors.YELLOW,
+def audit(
+    bssid: Annotated[str, typer.Argument(help="Own-network BSSID to audit.")],
+    config: ConfigOpt = DEFAULT_CONFIG_PATH,
+    wordlist: Annotated[Path, typer.Option(help="Wordlist for the offline crack.")] = Path(
+        "/usr/share/wordlists/rockyou.txt"
+    ),
+    from_capture: Annotated[
+        Path | None,
+        typer.Option("--from-capture", help="Crack an existing capture instead of capturing live."),
+    ] = None,
+    pmkid: Annotated[
+        bool, typer.Option(help="Capture a PMKID (clientless) vs. a handshake.")
+    ] = True,
+    channel: Annotated[int, typer.Option(help="Channel for live handshake capture.")] = 6,
+    seconds: Annotated[float, typer.Option(help="Live capture duration.")] = 60.0,
+    emit: Annotated[bool, typer.Option(help="Emit a finding to Hermes if configured.")] = False,
+) -> None:
+    """Own-network passphrase audit (passive, own-scope): capture a handshake/PMKID
+    for YOUR OWN AP and test its passphrase offline against a wordlist.
+
+    Refuses any BSSID not on the own-network allowlist. The cracked key (if any)
+    stays local — it is never placed on the emitted finding.
+    """
+    from ares.audit import AuditReport, assert_auditable, parse_aircrack, to_finding
+
+    cfg, guard = _load(config)
+    try:
+        assert_auditable(guard, bssid)
+    except ScopeError as e:
+        typer.secho(f"REFUSED: {e}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from e
+
+    from ares.monitor import capture_handshake, capture_pmkid, run_aircrack
+    from ares.transport.apollo import ApolloClient
+
+    if from_capture is not None:
+        capture = from_capture
+        captured_pmkid = captured_hs = False  # provided offline; kind unknown
+    elif pmkid:
+        capture = capture_pmkid(cfg.interface, bssid, seconds)
+        captured_pmkid, captured_hs = True, False
+    else:
+        capture = capture_handshake(cfg.interface, bssid, channel, seconds)
+        captured_pmkid, captured_hs = False, True
+
+    if not wordlist.exists():
+        typer.secho(f"wordlist not found: {wordlist}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
+
+    passphrase = parse_aircrack(run_aircrack(capture, wordlist), str(wordlist))
+
+    apollo = ApolloClient(cfg.transport.apollo_base_url, cfg.transport.timeout_seconds)
+    capture_ref = apollo.put_capture(capture)
+
+    report = AuditReport(
+        bssid=bssid,
+        handshake_captured=captured_hs,
+        pmkid_captured=captured_pmkid,
+        passphrase=passphrase,
+        capture_ref=capture_ref,
     )
-    raise typer.Exit(code=2)
+    if passphrase.cracked:
+        typer.secho(
+            f"WEAK: {bssid} passphrase cracked with {wordlist.name} — change it.",
+            fg=typer.colors.RED,
+        )
+    else:
+        typer.secho(f"OK: {bssid} passphrase held against {wordlist.name}.", fg=typer.colors.GREEN)
+
+    if emit:
+        client = HermesClient(cfg.transport.hermes_base_url, cfg.transport.timeout_seconds)
+        sent = client.emit(to_finding(report))
+        typer.echo(
+            "finding emitted to Hermes" if sent else "finding logged (Hermes not configured)"
+        )
 
 
 @active_app.command("deauth")
