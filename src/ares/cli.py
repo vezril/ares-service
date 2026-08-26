@@ -23,6 +23,7 @@ from ares import __version__
 from ares.config import DEFAULT_CONFIG_PATH, ScopeConfig
 from ares.discover import find_candidates
 from ares.models import Finding, Severity
+from ares.radio import RadioPool, select_provider
 from ares.scope import ScopeError, ScopeGuard
 from ares.survey import build_survey, parse_airodump_csv
 from ares.transport.hermes import HermesClient
@@ -58,6 +59,34 @@ def _root() -> None:
 def version() -> None:
     """Print the Ares version."""
     typer.echo(f"ares {__version__}")
+
+
+@app.command()
+def radios() -> None:
+    """List WiFi adapters and their monitor/injection/AP capabilities + mode.
+
+    Real ``iw`` enumeration on Linux; a representative mock pool elsewhere, so it
+    runs on a dev machine. Answers "which adapter can do monitor mode?".
+    """
+    reports = RadioPool(select_provider()).list()
+    if not reports:
+        typer.secho(
+            "No WiFi radios found (is the adapter plugged in and driver loaded?)",
+            fg=typer.colors.YELLOW,
+        )
+        raise typer.Exit(code=1)
+    for r in reports:
+        caps = ",".join(
+            name
+            for name, on in (
+                ("monitor", r.capabilities.monitor),
+                ("inject", r.capabilities.injection),
+                ("ap", r.capabilities.ap),
+            )
+            if on
+        )
+        chipset = f" [{r.chipset}]" if r.chipset else ""
+        typer.echo(f"{r.id} ({r.phy}, {r.driver}){chipset}  caps={caps or 'none'}  mode={r.mode}")
 
 
 @scope_app.command("show")
