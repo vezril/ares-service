@@ -76,3 +76,81 @@ def capture_airodump_csv(interface: str, seconds: float, *, channel: int | None 
                 f"airodump produced no CSV at {csv_path} — is {interface} in monitor mode?"
             )
         return csv_path.read_text()
+
+
+def capture_pmkid(interface: str, bssid: str, seconds: float) -> Path:
+    """Capture a PMKID for ``bssid`` with hcxdumptool; return the pcapng path.
+
+    Clientless (no deauth) — hcxdumptool asks the AP for its PMKID directly. The
+    caller (``ares.audit``) has already asserted ``bssid`` is own-scope; this
+    boundary only runs the tool. The returned file lives in the caller's captures
+    dir and is theirs to hash/store.
+    """
+    out = _captures_dir() / f"pmkid-{_safe(bssid)}.pcapng"
+    cmd = [
+        "hcxdumptool",
+        "-i",
+        interface,
+        "--filterlist_ap",
+        bssid,
+        "--filtermode",
+        "2",  # capture only the listed AP
+        "-w",
+        str(out),
+    ]
+    with contextlib.suppress(MonitorError):
+        _run(cmd, timeout=seconds)
+    if not out.exists():
+        raise MonitorError(f"hcxdumptool produced no capture at {out}")
+    return out
+
+
+def capture_handshake(interface: str, bssid: str, channel: int, seconds: float) -> Path:
+    """Passively capture a WPA handshake for ``bssid`` with airodump-ng.
+
+    No deauth is sent — this waits for a client to (re)associate naturally, which
+    keeps the audit passive. Forcing a handshake with a deauth would radiate and
+    belongs to the active tier, not here. Returns the ``.cap`` path.
+    """
+    with tempfile.TemporaryDirectory(prefix="ares-hs-") as tmp:
+        prefix = Path(tmp) / "hs"
+        cmd = [
+            "airodump-ng",
+            "--bssid",
+            bssid,
+            "--channel",
+            str(channel),
+            "--write",
+            str(prefix),
+            "--output-format",
+            "cap",
+            interface,
+        ]
+        with contextlib.suppress(MonitorError):
+            _run(cmd, timeout=seconds)
+        cap = prefix.with_name("hs-01.cap")
+        if not cap.exists():
+            raise MonitorError(f"airodump produced no capture at {cap}")
+        out = _captures_dir() / f"handshake-{_safe(bssid)}.cap"
+        out.write_bytes(cap.read_bytes())
+        return out
+
+
+def run_aircrack(capture: Path, wordlist: Path) -> str:
+    """Run ``aircrack-ng`` on a capture against a wordlist; return its stdout.
+
+    Offline compute, not a radio op, but it's still the same tool-subprocess
+    boundary — the pure output parser lives in :func:`ares.audit.parse_aircrack`.
+    """
+    result = _run(["aircrack-ng", "-w", str(wordlist), str(capture)])
+    return result.stdout
+
+
+def _captures_dir() -> Path:
+    d = Path("captures")
+    d.mkdir(exist_ok=True)
+    return d
+
+
+def _safe(bssid: str) -> str:
+    return bssid.replace(":", "")
