@@ -298,34 +298,102 @@ def audit(
         )
 
 
+def _emit_active(cfg: ScopeConfig, finding: Finding) -> None:
+    client = HermesClient(cfg.transport.hermes_base_url, cfg.transport.timeout_seconds)
+    sent = client.emit(finding)
+    typer.echo("finding emitted to Hermes" if sent else "finding logged (Hermes not configured)")
+
+
 @active_app.command("deauth")
 def active_deauth(
     target_bssid: Annotated[str, typer.Argument(help="Own-network BSSID to test.")],
     config: ConfigOpt = DEFAULT_CONFIG_PATH,
+    client_mac: Annotated[
+        str | None, typer.Option("--client", help="Target one own test device (else all).")
+    ] = None,
+    count: Annotated[
+        int, typer.Option(help="Deauth bursts (a resilience probe, not a flood).")
+    ] = 5,
     yes: Annotated[bool, typer.Option("--yes", help="Confirm this radiating run.")] = False,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Run every gate but do not transmit.")
+    ] = False,
 ) -> None:
     """Deauth-resilience test against your OWN BSSID. Allowlist-gated, default OFF.
 
-    This scaffolds the gate, not the attack: the guard is enforced and the run is
-    confirmed, but transmission is intentionally not wired until the active tier
-    is built on the proven passive base against a dedicated test AP.
+    Radiates to devices in range, so every gate must pass: active tier enabled,
+    target on the own-BSSID allowlist, and one --yes confirmation. --dry-run
+    exercises the gates without transmitting.
     """
-    _cfg, guard = _load(config)
+    from ares.active import (
+        ConfirmationRequiredError,
+        DeauthParams,
+        deauth_finding,
+        preflight_deauth,
+    )
+
+    cfg, guard = _load(config)
+    params = DeauthParams(target_bssid=target_bssid, client_mac=client_mac, count=count)
     try:
-        guard.assert_active_allowed(target_bssid)
+        preflight_deauth(guard, params, confirmed=yes)
     except ScopeError as e:
         typer.secho(f"REFUSED: {e}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from e
+    except ConfirmationRequiredError as e:
+        typer.secho(str(e), fg=typer.colors.YELLOW)
+        raise typer.Exit(code=1) from e
 
-    if guard.requires_confirmation() and not yes:
+    if dry_run:
         typer.secho(
-            f"About to run an ACTIVE deauth test against {target_bssid}. This radiates to every "
-            "device in range. Re-run with --yes to confirm.",
-            fg=typer.colors.YELLOW,
+            f"[dry-run] gates passed for {target_bssid}; not transmitting.", fg=typer.colors.CYAN
         )
-        raise typer.Exit(code=1)
+    else:
+        from ares.radiate import deauth
 
-    typer.secho(
-        f"[scaffold] scope + confirmation passed for {target_bssid}; transmission not yet wired.",
-        fg=typer.colors.YELLOW,
+        typer.secho(f"transmitting {count} deauth bursts at {target_bssid}…", fg=typer.colors.RED)
+        deauth(cfg.interface, target_bssid, count, client_mac)
+    _emit_active(cfg, deauth_finding(params, transmitted=not dry_run))
+
+
+@active_app.command("evil-twin")
+def active_evil_twin(
+    ssid: Annotated[str, typer.Argument(help="An own SSID to re-broadcast.")],
+    config: ConfigOpt = DEFAULT_CONFIG_PATH,
+    channel: Annotated[int, typer.Option(help="Channel for the rogue AP.")] = 6,
+    yes: Annotated[bool, typer.Option("--yes", help="Confirm this radiating run.")] = False,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Run every gate but do not transmit.")
+    ] = False,
+) -> None:
+    """Evil-twin test of your OWN SSID against your OWN test clients. Default OFF.
+
+    The strictest gate in the tool: it beacons a lure to everything in range, so
+    it needs the active tier enabled, the SSID to be one you own, declared
+    throwaway test devices (own_client_macs), and one --yes confirmation.
+    """
+    from ares.active import (
+        ConfirmationRequiredError,
+        EvilTwinParams,
+        evil_twin_finding,
+        preflight_evil_twin,
     )
+
+    cfg, guard = _load(config)
+    params = EvilTwinParams(ssid=ssid, channel=channel)
+    try:
+        preflight_evil_twin(guard, cfg, params, confirmed=yes)
+    except ScopeError as e:
+        typer.secho(f"REFUSED: {e}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from e
+    except ConfirmationRequiredError as e:
+        typer.secho(str(e), fg=typer.colors.YELLOW)
+        raise typer.Exit(code=1) from e
+
+    if dry_run:
+        typer.secho(f"[dry-run] gates passed for {ssid!r}; not transmitting.", fg=typer.colors.CYAN)
+    else:
+        from ares.radiate import evil_twin
+
+        typer.secho(f"standing up evil-twin of {ssid!r} on ch {channel}…", fg=typer.colors.RED)
+        evil_twin(cfg.interface, ssid, channel)
+    _emit_active(cfg, evil_twin_finding(params, transmitted=not dry_run))

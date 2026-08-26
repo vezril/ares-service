@@ -88,9 +88,17 @@ Point ares-ui at it with `ARES_ENDPOINT=http://127.0.0.1:8087` + `ARES_LIVE_STRE
 Layout: `scope.py` (BSSID/MAC guard, fails closed) · `config.py` (scope TOML) · `survey.py`
 (parse airodump → keep own detail, aggregate foreign) · `discover.py` (`scope discover`) ·
 `radio/` (iw enumeration + mode state machine + pool) · `http/` (the `ares serve` ASGI surface:
-wire contract, mock/live survey sources, Starlette app) · `monitor.py` (the thin hardware
-boundary — airmon/airodump) · `transport/` (Hermes findings + Apollo captures, no-op when
-unconfigured) · `cli.py` (the `ares` command).
+wire contract, mock/live survey sources, Starlette app) · `audit.py` (own-AP passphrase strength,
+secret stays local) · `active.py` (the radiating tier's gates + findings) · `monitor.py` (the thin
+passive hardware boundary — airmon/airodump) · `radiate.py` (**the only module that transmits** —
+aireplay/hostapd, isolated on purpose) · `transport/` (Hermes findings + Apollo captures, no-op
+when unconfigured) · `cli.py` (the `ares` command).
+
+The **active tier** (`ares active deauth` / `ares active evil-twin`) radiates, so it is gated to
+exhaustion: `active.enabled` off by default, target must be on the own-BSSID allowlist (evil-twin
+also needs an own SSID + declared `own_client_macs` test devices), and one `--yes` confirmation per
+run. `--dry-run` exercises every gate without transmitting. It is meant for a dedicated test AP +
+throwaway clients, RF-isolated — never the household net or the neighbours.
 
 Live capture and the Docker image (`Dockerfile`, `docker-compose.yml`) need the RTL8812AU driver
 in the **host** kernel and the adapter in monitor mode — the host prep step (see AGENTS.md).
