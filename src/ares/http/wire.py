@@ -96,6 +96,25 @@ class ScopeBody(_Wire):
     active_enabled: bool
 
 
+class PostureItem(_Wire):
+    """``GET /posture`` item — the honest self-assessment of one own AP.
+
+    Fuses survey facts (channel/security) with audit + rogue findings into a
+    per-AP grade. ``security_grade`` rates the encryption; ``passphrase_status``
+    reflects whether an audit has run and what it found (never the key itself);
+    ``rogue_spoof`` is true when a foreign AP is broadcasting this AP's SSID.
+    """
+
+    bssid: str
+    ssid: str | None
+    channel: int | None
+    band: Band | None
+    security: Security
+    security_grade: str  # good | fair | weak
+    passphrase_status: str  # untested | held | weak
+    rogue_spoof: bool
+
+
 class WireFinding(_Wire):
     """``GET /findings`` item — a ``security.wifi.finding`` for the board.
 
